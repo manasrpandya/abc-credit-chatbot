@@ -62,7 +62,7 @@ def _sqlite():
 create_sql = """create table if not exists audit_events (
     id text primary key, session_id text not null, seq integer not null, at_ms bigint not null,
     kind text not null, body text not null, prev_hash text not null, row_hash text not null)"""
-index_sql = "create unique index if not exists audit_session on audit_events (session_id, seq)"
+index_sql = "create unique index if not exists audit_session_seq on audit_events (session_id, seq)"
 
 
 def _ensure():

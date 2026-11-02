@@ -167,3 +167,18 @@ def test_typed_vehicle_gives_choices_then_something_else_still_works():
     other = chat.answer(chat.start()["state"], value="other")
     assert other["question"]["key"] == "on_road_price"
     assert chat.unseal(other["state"])["a"]["vehicle"] == ""
+
+
+def test_applying_again_with_a_new_down_payment_logs_a_new_decision():
+    turn = walk(*full_path(down="5%"))
+    first = chat.submit(turn["state"])
+    cleared = chat.edit(first["state"], "down_payment")
+    assert cleared["question"]["key"] == "down_payment"
+    filled = chat.answer(cleared["state"], value="60000")
+    assert filled["stage"] == "review"
+    second = chat.submit(filled["state"])
+    assert second["probability"] <= first["probability"]
+    sid = chat.unseal(filled["state"])["sid"]
+    events = audit.session_events(sid)
+    assert sum(e["kind"] == "decision" for e in events["events"]) == 2
+    assert events["chain_intact"]

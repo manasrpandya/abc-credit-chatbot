@@ -5,7 +5,7 @@ model and returns approve or decline straight away, along with what influenced t
 
 Mini project for Z6008.
 
-**Live site:** LIVE_URL
+**Live site:** https://abc-credit-loans.vercel.app
 
 The training data isn't in this repo since it isn't mine to publish. Put `training_data.csv` in the repo root
 if you want to rerun the pipeline. The site and the localhost version work without it.
@@ -41,7 +41,7 @@ The full reasoning is in [report/report.md](report/report.md), and the data expl
 
 This is the stronger model, and it needs python 3.10 to 3.13 but no node.
 
-1. Download `abc-credit-local.zip` from the [releases page](RELEASE_URL) and unzip it.
+1. Download `abc-credit-local.zip` from the [releases page](https://github.com/manasrpandya/abc-credit-chatbot/releases/latest) and unzip it.
 2. **Mac or Linux:** open a terminal in the folder and run `sh start_mac_linux.sh`.
    **Windows:** double click `start_windows.bat`.
 3. It sets itself up on the first run (a few minutes), then opens http://127.0.0.1:8000.
@@ -94,7 +94,7 @@ The input has the same columns as the training file, without `Decision`. Blank c
 ## What's where
 
 ```
-pipeline/    cleaning splits, field search, training, evaluation, scoring a csv
+pipeline/    field search, training, evaluation, scoring a csv
 server/      the api, chat flow, masking, audit log, tree scorer and the exported model
 web/         the site (next.js, exported as static files)
 notebooks/   data exploration
