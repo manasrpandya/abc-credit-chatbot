@@ -1,0 +1,10 @@
+*.csv
+*.docx
+.venv
+notebooks
+report
+pipeline
+tests
+local
+server/creditbot/model_local
+.env
