@@ -1,0 +1,28 @@
+# data stays out of the repo, see readme
+*.csv
+*.docx
+*.xlsx
+
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+catboost_info/
+.pytest_cache/
+
+node_modules/
+web/.next/
+web/out/
+.vercel/
+
+# heavier model only ships through the release zip
+server/creditbot/model_local/
+dist/
+*.sqlite3
+runs/
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo
