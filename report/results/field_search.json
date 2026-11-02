@@ -1,0 +1,114 @@
+{
+ "with_gender": [
+  0.7845,
+  0.1773
+ ],
+ "all_questions": [
+  0.7842,
+  0.177
+ ],
+ "drop_one": {
+  "vehicle": [
+   0.7789,
+   0.1719
+  ],
+  "on_road_price": [
+   0.7767,
+   0.166
+  ],
+  "down_payment": [
+   0.6865,
+   0.1096
+  ],
+  "pincode": [
+   0.7621,
+   0.1539
+  ],
+  "age": [
+   0.7834,
+   0.1746
+  ],
+  "employment": [
+   0.7842,
+   0.1759
+  ],
+  "income": [
+   0.7844,
+   0.1766
+  ],
+  "active_loans": [
+   0.7815,
+   0.1736
+  ],
+  "education": [
+   0.7845,
+   0.1756
+  ],
+  "residence": [
+   0.7843,
+   0.1763
+  ]
+ },
+ "path": [
+  {
+   "asked": 10,
+   "removed": null,
+   "auc": 0.7842,
+   "ap": 0.177
+  },
+  {
+   "asked": 9,
+   "removed": "education",
+   "auc": 0.7845,
+   "ap": 0.1756
+  },
+  {
+   "asked": 8,
+   "removed": "income",
+   "auc": 0.7844,
+   "ap": 0.1777
+  },
+  {
+   "asked": 7,
+   "removed": "residence",
+   "auc": 0.7846,
+   "ap": 0.1767
+  },
+  {
+   "asked": 6,
+   "removed": "employment",
+   "auc": 0.7837,
+   "ap": 0.1755
+  },
+  {
+   "asked": 5,
+   "removed": "age",
+   "auc": 0.7822,
+   "ap": 0.1735
+  },
+  {
+   "asked": 4,
+   "removed": "active_loans",
+   "auc": 0.7789,
+   "ap": 0.1694
+  },
+  {
+   "asked": 3,
+   "removed": "vehicle",
+   "auc": 0.771,
+   "ap": 0.1629
+  },
+  {
+   "asked": 2,
+   "removed": "on_road_price",
+   "auc": 0.6972,
+   "ap": 0.1182
+  },
+  {
+   "asked": 1,
+   "removed": "pincode",
+   "auc": 0.6126,
+   "ap": 0.0761
+  }
+ ]
+}
