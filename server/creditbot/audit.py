@@ -13,18 +13,40 @@ from urllib.parse import urlparse
 
 _lock = threading.Lock()
 _ready = False
+_con = None
 
 
 def _db_url():
     return os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or ""
 
 
-def _pg():
+def _connect():
     import pg8000.native
     u = urlparse(_db_url())
     return pg8000.native.Connection(user=u.username, password=u.password, host=u.hostname,
                                     port=u.port or 5432, database=u.path.lstrip("/"),
                                     ssl_context=ssl.create_default_context(), timeout=6)
+
+
+def _with_pg(work):
+    """Opening a tls connection is by far the slowest step, so keep one open between requests.
+    It can go stale while the database sleeps, hence the one retry."""
+    global _con
+    with _lock:
+        for attempt in (1, 2):
+            try:
+                if _con is None:
+                    _con = _connect()
+                return work(_con)
+            except Exception:
+                try:
+                    if _con is not None:
+                        _con.close()
+                except Exception:
+                    pass
+                _con = None
+                if attempt == 2:
+                    raise
 
 
 def _sqlite_path():
@@ -40,6 +62,7 @@ def _sqlite():
 create_sql = """create table if not exists audit_events (
     id text primary key, session_id text not null, seq integer not null, at_ms bigint not null,
     kind text not null, body text not null, prev_hash text not null, row_hash text not null)"""
+index_sql = "create unique index if not exists audit_session on audit_events (session_id, seq)"
 
 
 def _ensure():
@@ -47,14 +70,14 @@ def _ensure():
     if _ready:
         return
     if _db_url():
-        con = _pg()
-        con.run(create_sql)
-        con.run("create index if not exists audit_session on audit_events (session_id, seq)")
-        con.close()
+        def setup(con):
+            con.run(create_sql)
+            con.run(index_sql)
+        _with_pg(setup)
     else:
         with _sqlite() as con:
             con.execute(create_sql)
-            con.execute("create index if not exists audit_session on audit_events (session_id, seq)")
+            con.execute(index_sql)
     _ready = True
 
 
@@ -63,42 +86,47 @@ def _hash(prev, session_id, seq, at_ms, kind, body):
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _chain(session_id, seq, prev, events):
+    rows = []
+    for kind, body in events:
+        seq += 1
+        text = json.dumps(body, ensure_ascii=False, default=str, sort_keys=True)
+        at_ms = int(time.time() * 1000)
+        row = _hash(prev, session_id, seq, at_ms, kind, text)
+        rows.append((uuid.uuid4().hex, session_id, seq, at_ms, kind, text, prev, row))
+        prev = row
+    return rows
+
+
+def _write_pg(session_id, events):
+    def work(con):
+        last = con.run("select seq, row_hash from audit_events where session_id = :s "
+                       "order by seq desc limit 1", s=session_id)
+        rows = _chain(session_id, last[0][0] if last else -1, last[0][1] if last else "start", events)
+        slots, params = [], {}
+        for n, row in enumerate(rows):
+            names = [f"c{n}_{i}" for i in range(len(row))]
+            slots.append("(" + ", ".join(":" + x for x in names) + ")")
+            params.update(zip(names, row))
+        con.run("insert into audit_events values " + ", ".join(slots), **params)
+    _with_pg(work)
+
+
+def _write_sqlite(session_id, events):
+    with _lock, _sqlite() as con:
+        last = con.execute("select seq, row_hash from audit_events where session_id = ? "
+                           "order by seq desc limit 1", (session_id,)).fetchone()
+        rows = _chain(session_id, last["seq"] if last else -1, last["row_hash"] if last else "start", events)
+        con.executemany("insert into audit_events values (?,?,?,?,?,?,?,?)", rows)
+
+
 def write_many(session_id, events):
     """events: list of (kind, body). A logging failure never breaks the chat but does get printed."""
     if not events:
         return True
     try:
         _ensure()
-        with _lock:
-            if _db_url():
-                con = _pg()
-                last = con.run("select seq, row_hash from audit_events where session_id = :s "
-                               "order by seq desc limit 1", s=session_id)
-                seq = last[0][0] if last else -1
-                prev = last[0][1] if last else "start"
-                for kind, body in events:
-                    seq += 1
-                    text = json.dumps(body, ensure_ascii=False, default=str, sort_keys=True)
-                    at_ms = int(time.time() * 1000)
-                    row = _hash(prev, session_id, seq, at_ms, kind, text)
-                    con.run("insert into audit_events values (:i, :s, :q, :a, :k, :b, :p, :h)",
-                            i=uuid.uuid4().hex, s=session_id, q=seq, a=at_ms, k=kind, b=text, p=prev, h=row)
-                    prev = row
-                con.close()
-            else:
-                with _sqlite() as con:
-                    last = con.execute("select seq, row_hash from audit_events where session_id = ? "
-                                       "order by seq desc limit 1", (session_id,)).fetchone()
-                    seq = last["seq"] if last else -1
-                    prev = last["row_hash"] if last else "start"
-                    for kind, body in events:
-                        seq += 1
-                        text = json.dumps(body, ensure_ascii=False, default=str, sort_keys=True)
-                        at_ms = int(time.time() * 1000)
-                        row = _hash(prev, session_id, seq, at_ms, kind, text)
-                        con.execute("insert into audit_events values (?,?,?,?,?,?,?,?)",
-                                    (uuid.uuid4().hex, session_id, seq, at_ms, kind, text, prev, row))
-                        prev = row
+        (_write_pg if _db_url() else _write_sqlite)(session_id, events)
         return True
     except Exception as err:
         print("audit write failed:", type(err).__name__, flush=True)
@@ -108,11 +136,11 @@ def write_many(session_id, events):
 def _rows(sql_pg, sql_lite, **params):
     _ensure()
     if _db_url():
-        con = _pg()
-        rows = con.run(sql_pg, **params)
-        names = [c["name"] for c in con.columns]
-        con.close()
-        return [dict(zip(names, r)) for r in rows]
+        def work(con):
+            rows = con.run(sql_pg, **params)
+            names = [c["name"] for c in con.columns]
+            return [dict(zip(names, r)) for r in rows]
+        return _with_pg(work)
     with _sqlite() as con:
         return [dict(r) for r in con.execute(sql_lite, tuple(params.values())).fetchall()]
 
