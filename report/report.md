@@ -190,7 +190,8 @@ groups have few declines, so their recall is noisy. Before any real use, this ga
 
 - **Separation.** The decision is `probability >= cut-off`, in code the language model can't reach. A test confirms that language model suggestions pass through the same validators as typed answers.
 - **State machine.** It owns the order and the rules. Each answer goes through a plain parser first (35k, 1.2 lakh, 20%), so most turns don't use the language model at all.
-- **Language model.** NVIDIA NIM, used for reading messy messages, side questions and wording the summary. It rotates across three keys and tries a chain of models. If all of that fails, the bot uses scripted text and still finishes.
+- **Language model.** NVIDIA NIM, used for reading messy messages, side questions and wording the summary. It rotates across three keys and two Nemotron models, with the model's thinking turned off so it replies in about a second. Each call gives up after 7 seconds in total. If all of that fails, the bot uses scripted text and still finishes.
+- **Nothing it isn't told.** An answer the language model pulls from a message is kept only if the message mentions that topic. In testing it once filled in "no other loans" for a message that never said so, and that check now drops such guesses. Side questions are answered from a short list of true facts about the service: for example, there is no credit bureau check, and it says it doesn't know rates or EMIs.
 - **Explanation guard.** A summary from the language model is dropped for a fixed template if it contradicts the decision, mentions a number that isn't in the facts, or uses words like "guarantee".
 - **Why a result came out that way.** SHAP values from the model, grouped by answer and shown as plain reasons, under a disclaimer saying these are patterns in past decisions, not the formal reason or a statement of cause.
 - **What-if slider.** Dragging the down payment re-scores with the same model, and applying with a new value creates a new logged decision.
@@ -223,6 +224,17 @@ The slowest of the 25 took 1,016 ms, just over target.
 the free database waking from sleep, can push a first request past a second (our first run after a deploy saw 3.1 s on the opening request), so the target applies to warm requests. Keeping an instance warm would close that gap in production.
 
 Our first version took 1.4 seconds just to write the log, because it opened a new database connection each time. Reusing the connection brought that to about 10 ms.
+
+The language model is not on this path. The worded summary is fetched after the decision is already on screen. Over 8 more hosted applications with the language model switched on:
+
+| Step | Median | Slowest |
+|---|---:|---:|
+| Reading a free-form message | 1.6 s | 1.8 s |
+| Answering a side question | 1.8 s | 2.1 s |
+| Worded summary, after the decision | 1.4 s | 4.5 s |
+| Final input to decision | 528 ms | 680 ms |
+
+All 8 summaries passed the guard. Turns answered with a button or a plain value skip the language model.
 
 **X = 3 minutes.** Eight questions at about 15 to 20 seconds each comes to around 2 to 3 minutes for a first-time user. An automated run takes under 15 seconds, so nearly all the time is the person reading and answering. We haven't timed real applicants. The log records completion time for each session, so this can be checked once people use it.
 
