@@ -42,6 +42,15 @@ why_we_ask = {
     "active_loans": "An existing loan affects how past applications like yours turned out.",
 }
 
+field_labels = [("vehicle", "Vehicle"), ("on_road_price", "On-road price"), ("down_payment", "Down payment"),
+                ("pincode", "Pincode"), ("age", "Age"), ("employment", "Employment"),
+                ("income", "Monthly income"), ("active_loans", "Loans running")]
+# what the side question helper is allowed to say about each question
+reasons_for_llm = "\n".join(f"{label}: {why_we_ask[key]}" for key, label in field_labels)
+noted_names = {"vehicle": "the vehicle", "on_road_price": "the price", "down_payment": "your down payment",
+               "pincode": "your pincode", "age": "your age", "employment": "your work",
+               "income": "your income", "active_loans": "your loans"}
+
 factor_labels = {"financing": "Down payment and loan size", "price": "Vehicle price", "income": "Income",
                  "location": "Your area", "vehicle": "Vehicle model", "age": "Age",
                  "employment": "Employment type", "active_loans": "Existing loans",
@@ -52,7 +61,7 @@ toward_decline = {
     "price": "The price of this vehicle is on the higher side",
     "income": "The loan is large compared with your income",
     "location": "Applications from your area were declined more often",
-    "vehicle": "This model was declined more often in past applications",
+    "vehicle": "This vehicle was declined more often in past applications",
     "age": "Applicants around your age were declined more often",
     "employment": "Your employment type was declined more often",
     "active_loans": "Applicants with your loan history were declined more often",
@@ -62,7 +71,7 @@ toward_approval = {
     "price": "The price of this vehicle is on the lower side",
     "income": "Your income is comfortable for this loan size",
     "location": "Applications from your area were approved more often",
-    "vehicle": "This model was approved more often in past applications",
+    "vehicle": "This vehicle was approved more often in past applications",
     "age": "Applicants around your age were approved more often",
     "employment": "Your employment type was approved more often",
     "active_loans": "Applicants with your loan history were approved more often",
@@ -271,17 +280,20 @@ def set_answer(state, key, value):
     a = state["a"]
     old = a.get(key)
     a[key] = value
-    if key == "vehicle" and old != value:
+    # replacing the vehicle or price makes the later money answers stale. a first answer doesn't,
+    # someone can give the price and down payment before picking the exact model
+    if key == "vehicle" and old is not None and old != value:
         a.pop("on_road_price", None)
         a.pop("down_payment", None)
-    if key == "on_road_price" and old != value:
+    if key == "on_road_price" and old is not None and old != value:
         a.pop("down_payment", None)
     if key == "employment":
         if value in no_income_needed:
             a["income"] = 0
         elif old in no_income_needed:
             a.pop("income", None)
-    state["pick"] = None
+    if key == "vehicle":
+        state["pick"] = None
     state["out"] = None
 
 
@@ -306,10 +318,7 @@ def to_application(a):
 def summary_rows(a):
     out = []
     cat = catalogue()
-    labels = [("vehicle", "Vehicle"), ("on_road_price", "On-road price"), ("down_payment", "Down payment"),
-              ("pincode", "Pincode"), ("age", "Age"), ("employment", "Employment"),
-              ("income", "Monthly income"), ("active_loans", "Loans running")]
-    for key, label in labels:
+    for key, label in field_labels:
         if key not in a or (key == "income" and not is_needed("income", a)):
             continue
         v = a[key]
@@ -407,6 +416,8 @@ def _llm_help(state, key, text, events):
             else:
                 if hits and k == key:
                     state["pick"] = hits
+                elif k == key:
+                    errors.append("I couldn't find that model.")
                 continue
         err = _accept(state, k, v, "llm", text, events)
         if err:
@@ -416,7 +427,8 @@ def _llm_help(state, key, text, events):
     answer = None
     if suggestion and not applied and state["llm"] < max_llm_calls:
         state["llm"] += 1
-        answer = nim.answer_question(privacy.mask_for_llm(str(suggestion)), question_for(state, key)["text"])
+        answer = nim.answer_question(privacy.mask_for_llm(str(suggestion)), question_for(state, key)["text"],
+                                     reasons_for_llm)
         events.append(("llm_call", {"purpose": "side_question", "ok": answer is not None}))
     return applied, answer, errors
 
@@ -474,7 +486,9 @@ def answer(token, text=None, value=None):
 
     applied, reply, errors = _llm_help(state, key, raw, events)
     if applied:
-        return _reply(state, _after_answer(state, applied), events)
+        # say what didn't work too, like a model we couldn't find
+        extra = errors[:1] if errors and not state.get("ineligible") else []
+        return _reply(state, _after_answer(state, applied) + extra, events)
     if reply:
         return _reply(state, [reply], events)
     if is_question:
@@ -493,7 +507,8 @@ def _after_answer(state, keys):
     if state.get("ineligible"):
         return ["You need to be at least 18 to apply, so we can't take this further today. Thanks for stopping by."]
     if len(keys) > 1:
-        return [f"Got it, I've noted {len(keys)} of those."]
+        names = [noted_names[k] for k in keys]
+        return [f"Got it, I've noted {', '.join(names[:-1])} and {names[-1]}."]
     ack = _ack(keys[0], state["a"][keys[0]], state["a"])
     return [ack] if ack else []
 
@@ -599,8 +614,9 @@ def plain_summary(decision, what_if):
     return head + tail
 
 
-def llm_summary_ok(text, decision, what_if):
-    """The llm may only rephrase. Drop it if it contradicts the decision or invents a number."""
+def llm_summary_ok(text, decision, what_if, facts_text=""):
+    """The llm may only rephrase. Drop it if it contradicts the decision or invents a number.
+    Numbers it was given, like the share on loan in a reason, may be repeated."""
     low = text.lower()
     if decision == "approved" and ("declin" in low or "not approved" in low or "wasn't approved" in low):
         return False
@@ -609,7 +625,7 @@ def llm_summary_ok(text, decision, what_if):
         return False
     if banned.search(text):
         return False
-    allowed = set()
+    allowed = {n.replace(",", "") for n in re.findall(r"\d[\d,]*", facts_text)}
     if what_if:
         allowed.add(str(what_if["extra_down_payment"]))
     for number in re.findall(r"\d[\d,]*", text):
@@ -633,7 +649,7 @@ def summary(token):
         facts["extra_down_payment_rupees"] = what_if["extra_down_payment"]
     started = time.perf_counter()
     text = nim.explain(facts)
-    used = bool(text and llm_summary_ok(text, result["decision"], what_if))
+    used = bool(text and llm_summary_ok(text, result["decision"], what_if, " ".join(facts["main_factors"])))
     audit.write_many(state["sid"], [("llm_call", {"purpose": "explain", "ok": bool(text), "passed_check": used,
                                                   "ms": round((time.perf_counter() - started) * 1000),
                                                   "text": text if used else None})])

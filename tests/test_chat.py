@@ -138,6 +138,9 @@ def test_llm_cannot_contradict_or_invent():
     assert chat.llm_summary_ok("Paying 5,000 more would likely change it.", "declined",
                                {"extra_down_payment": 5000})
     assert not chat.llm_summary_ok("Your score was low.", "declined", None)
+    given = "Most of the vehicle price would be on loan (95%)"
+    assert chat.llm_summary_ok("Most of the price, 95%, would be on loan.", "declined", None, given)
+    assert not chat.llm_summary_ok("Most of the price, 90%, would be on loan.", "declined", None, given)
 
 
 def test_rupee_format_is_indian():
@@ -182,3 +185,31 @@ def test_applying_again_with_a_new_down_payment_logs_a_new_decision():
     events = audit.session_events(sid)
     assert sum(e["kind"] == "decision" for e in events["events"]) == 2
     assert events["chain_intact"]
+
+
+def test_one_long_message_keeps_the_shortlist_and_the_money_answers(monkeypatch):
+    monkeypatch.setattr(nim, "available", lambda: True)
+    monkeypatch.setattr(nim, "extract_answers",
+                        lambda *a: {"vehicle": "jupiter 125 disc", "on_road_price": 98000, "down_payment": 15000})
+    out = chat.answer(chat.start()["state"], text="buying a jupiter 125 disc, price 98000, paying 15k down")
+    assert out["question"]["key"] == "vehicle" and out["question"]["kind"] == "chips"
+    picked = chat.answer(out["state"], value=out["question"]["chips"][0]["value"])
+    a = chat.unseal(picked["state"])["a"]
+    assert a["on_road_price"] == 98000 and a["down_payment"] == 15000
+    assert picked["question"]["key"] == "pincode"
+
+
+def test_unknown_vehicle_from_the_llm_is_mentioned(monkeypatch):
+    monkeypatch.setattr(nim, "available", lambda: True)
+    monkeypatch.setattr(nim, "extract_answers", lambda *a: {"vehicle": "honda activa", "on_road_price": 92000})
+    out = chat.answer(chat.start()["state"], text="honda activa for 92000 on road please")
+    assert "I couldn't find that model." in out["messages"]
+    assert chat.unseal(out["state"])["a"]["on_road_price"] == 92000
+
+
+def test_changing_the_vehicle_still_clears_the_price():
+    turn = walk(("value", a_vehicle()), ("text", "1 lakh"), ("text", "20%"))
+    state = chat.unseal(turn["state"])
+    other = next(m for m in chat.catalogue() if m != state["a"]["vehicle"])
+    chat.set_answer(state, "vehicle", other)
+    assert "on_road_price" not in state["a"] and "down_payment" not in state["a"]
