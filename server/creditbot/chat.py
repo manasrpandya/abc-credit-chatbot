@@ -409,6 +409,9 @@ def _llm_help(state, key, text, events):
         if k not in data or data[k] in (None, ""):
             continue
         v = data[k]
+        if not stated_in(k, v, text):
+            events.append(("llm_unsupported", {"key": k}))
+            continue
         if k == "vehicle":
             hits = parsing.match_vehicle(v, catalogue())
             if len(hits) == 1:
@@ -431,6 +434,34 @@ def _llm_help(state, key, text, events):
                                      reasons_for_llm)
         events.append(("llm_call", {"purpose": "side_question", "ok": answer is not None}))
     return applied, answer, errors
+
+
+# the llm sometimes fills in things nobody said, like "no other loans". an answer it found only
+# counts if the message actually touches that topic
+money_hint = re.compile(r"\d|lakh|lac\b|thousand|hundred|crore", re.I)
+loans_hint = re.compile(r"\b(emis?|loans?|debts?|borrow\w*|owe|credit card)\b", re.I)
+work_hint = re.compile(r"\b(salar\w*|job|jobs|work\w*|employ\w*|business\w*|self|shop\w*|farm\w*|agri\w*|"
+                       r"crop\w*|student|college|study\w*|school|pension\w*|retired|housewife|homemaker|"
+                       r"nrega|labou?r\w*|driver|freelanc\w*|earn\w*|company|office|government|govt)\b", re.I)
+
+
+def stated_in(key, value, text):
+    low = text.lower()
+    if key == "pincode":
+        return str(value) in re.sub(r"\s", "", low)
+    if key == "age":
+        try:
+            return str(int(float(value))) in low
+        except (TypeError, ValueError):
+            return False
+    if key in ("on_road_price", "down_payment", "income"):
+        return bool(money_hint.search(low))
+    if key == "active_loans":
+        # "a loan for this bike" mentions a loan but says nothing about other loans
+        return bool(loans_hint.search(re.sub(r"\b(this|the|a|my|two.?wheeler|bike|scooter|vehicle) loan\b", " ", low)))
+    if key == "employment":
+        return bool(work_hint.search(low))
+    return True
 
 
 question_starts = {"why", "what", "how", "who", "when", "where", "which", "should", "is", "do", "does",

@@ -74,6 +74,7 @@ def complete(messages, max_tokens=300, temperature=0.2, timeout=5.0, budget=7.0,
 
 extract_system = """You read one message from someone applying for a two-wheeler loan in India and pull out any facts they stated.
 Reply with one json object and nothing else. Only include keys that the person clearly stated, never guess.
+Leave a key out when the message doesn't mention it. Don't assume someone has no loans or a certain job.
 Keys:
 vehicle: the bike or scooter name as written
 on_road_price: rupees as a number

@@ -213,3 +213,16 @@ def test_changing_the_vehicle_still_clears_the_price():
     other = next(m for m in chat.catalogue() if m != state["a"]["vehicle"])
     chat.set_answer(state, "vehicle", other)
     assert "on_road_price" not in state["a"] and "down_payment" not in state["a"]
+
+
+def test_llm_answers_need_support_in_the_message(monkeypatch):
+    monkeypatch.setattr(nim, "available", lambda: True)
+    monkeypatch.setattr(nim, "extract_answers",
+                        lambda *a: {"on_road_price": 130000, "active_loans": False, "employment": "SAL", "age": 30})
+    out = chat.answer(chat.start()["state"], text="getting an apache, price around 1.3 lakh, want a loan for this bike")
+    a = chat.unseal(out["state"])["a"]
+    assert a.get("on_road_price") == 130000
+    assert "active_loans" not in a and "employment" not in a and "age" not in a
+    assert chat.stated_in("active_loans", False, "no other loans running")
+    assert chat.stated_in("employment", "SAL", "I'm salaried at a bank")
+    assert chat.stated_in("age", 34, "i am 34")
