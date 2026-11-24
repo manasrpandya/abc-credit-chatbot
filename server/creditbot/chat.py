@@ -232,6 +232,10 @@ def validate(key, value, a):
             return None, f"Did you mean {rupees(v * 1000)}? Please give the full amount in rupees."
         if not 30000 <= v <= 600000:
             return None, "That price looks off for a two-wheeler. It should be between ₹30,000 and ₹6,00,000."
+        usual = load_scorer_for_mode().look["model_price"].get(a.get("vehicle"))
+        if usual and v < 0.5 * usual:
+            return None, (f"That's well below the usual {rupees(round(usual / 500) * 500)} for this model. "
+                          "Is that the on-road price, or maybe what you'll pay upfront?")
         return int(v), None
     if key == "down_payment":
         price = a.get("on_road_price", 0)
@@ -298,6 +302,11 @@ def set_answer(state, key, value):
             a.pop("income", None)
     if key == "vehicle":
         state["pick"] = None
+        # a price given before the exact model was known may not fit it, e.g. "around 30k" for a Jupiter
+        usual = load_scorer_for_mode().look["model_price"].get(value)
+        if usual and a.get("on_road_price") and a["on_road_price"] < 0.5 * usual:
+            state["price_cleared"] = a.pop("on_road_price")
+            a.pop("down_payment", None)
     state["out"] = None
 
 
@@ -338,7 +347,9 @@ def summary_rows(a):
         if key not in a or (key == "income" and not is_needed("income", a)):
             continue
         v = a[key]
-        if key == "vehicle":
+        if key == "vehicle" and a.get("vehicle_name"):
+            shown = f"{a['vehicle_name']} (not in our list)"
+        elif key == "vehicle":
             shown = cat.get(v, "Not listed")
         elif key in ("on_road_price", "down_payment", "income"):
             shown = rupees(v)
@@ -623,6 +634,9 @@ def _reasons(ranked, decision, ltv):
               "text": other[r["factor"]].format(ltv=ltv)} for r in against])
 
 
+over_policy_step = ("Your age is outside our usual 18 to 60 policy, but we consider these cases one by one. "
+                    "Whatever the result here, ask for a callback and explain your situation to our team.")
+
 next_steps = {
     "approved": ["Keep your ID, address proof and recent income proof ready.",
                  "Take this result to your ABC dealer to finish the paperwork.",
@@ -679,7 +693,8 @@ def submit(token):
             "threshold": result["threshold"], "model_kind": result["model_kind"],
             "model_version": result["model_version"], "reasons": reasons, "against": against,
             "shap": [{**r, "label": factor_labels.get(r["factor"], r["factor"])} for r in ranked],
-            "what_if": what_if, "next_steps": next_steps[result["decision"]], "disclaimer": disclaimer,
+            "what_if": what_if, "next_steps": next_steps[result["decision"]] + (
+                [over_policy_step] if state["a"].get("age", 0) > 60 else []), "disclaimer": disclaimer,
             "timing": {"decision_ms": round(decision_ms, 1), "shap_ms": round(shap_ms, 1),
                        "what_if_ms": round(what_if_ms, 1), "log_ms": round(log_ms, 1),
                        "total_ms": round((time.perf_counter() - began) * 1000, 1),

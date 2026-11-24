@@ -73,6 +73,11 @@ three steps:
 - **Model choice.** On 12 tricky replies taken from real test chats, Nemotron Ultra read 12 of 12 right in three runs,
   against 8 of 12 for the smaller Nemotron Lightning. A turn takes about 3 to 5 seconds. The decision itself is under a
   second.
+- **Bikes outside the data.** A two-wheeler that isn't in the training data (say a Honda Activa) can still apply. The chat
+  looks up a rough on-road price, from a web search if `TAVILY_API_KEY` is set and otherwise from the language model, and
+  then asks for the actual quote. Unseen models don't break scoring.
+- **Ages above 60** are outside the stated policy. They're scored, flagged in the log, and told that such cases are
+  considered one by one and that they can explain their situation to the team.
 - **Fallback.** Buttons and a scripted state machine still work if NIM is down or the keys run out.
 
 ## Results
