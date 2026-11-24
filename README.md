@@ -38,15 +38,42 @@ if you want to rerun the pipeline. The site and the localhost version work witho
 - **Tamper-evident log.** Each row hashes the previous one, so an edited entry breaks the chain.
 - **A stronger offline version.** The release zip runs a LightGBM and CatBoost blend on your own machine.
 
-## How the decision works
+## How it works
 
-The model decides, the language model only talks.
+A language model runs the conversation, and the trained model makes the decision. Every typed message goes through
+three steps:
 
-- A LightGBM model gives a probability, and that gets compared to a fixed cut-off. No language model is involved.
-- A plain state machine owns the questions and their rules.
-- An NVIDIA NIM model helps read messy messages and words the explanation. Anything it suggests goes through the
-  same validators as a typed answer, and its explanation is thrown out if it contradicts the decision or adds a number.
-- If NIM is down or no keys are set, the bot falls back to scripted wording and still finishes.
+```
+ applicant types ──► 1. UNDERSTAND   language model (Nemotron Ultra on NVIDIA NIM)
+                        reads the message with the conversation so far and returns
+                        what it says as data: answers, corrections, a question,
+                        "show me my decision"
+                              │
+                              ▼
+                     2. ACT          plain code
+                        checks each value is really in the message, runs the same
+                        validators as a typed answer, saves it, searches vehicles.
+                        If the applicant asked for their decision and nothing is
+                        missing, it calls the credit model:
+                              │
+                              ├──► LightGBM ► probability ≥ 11.5% ? declined : approved
+                              │               + SHAP reasons, what-if, audit log
+                              ▼
+                     3. REPLY        language model
+                        writes the next message from exactly what step 2 did,
+                        and asks for the next missing detail in its own words
+```
+
+- **The decision never comes from the language model.** It can only signal that the applicant wants one. The result
+  shown is the model's own output, and a reply that mentions approval or decline is blocked.
+- **It can't invent answers.** A value is saved only if the applicant's message contains it. "70" can stand for ₹70,000
+  only when the price is what was just asked, and "yes" to a suggested price needs an actual yes.
+- **It reads context.** "no" to a suggested price, "3k i mean", "the comfort one", Hinglish ("25 hazaar", "koi loan nahi"),
+  several answers in one message, and side questions all work.
+- **Model choice.** On 12 tricky replies taken from real test chats, Nemotron Ultra read 12 of 12 right in three runs,
+  against 8 of 12 for the smaller Nemotron Lightning. A turn takes about 3 to 5 seconds. The decision itself is under a
+  second.
+- **Fallback.** Buttons and a scripted state machine still work if NIM is down or the keys run out.
 
 ## Results
 

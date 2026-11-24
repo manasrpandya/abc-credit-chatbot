@@ -12,6 +12,9 @@ url = "https://integrate.api.nvidia.com/v1/chat/completions"
 # both reply in about a second with thinking off. the bigger gemma and deepseek
 # models kept timing out on the free tier, so they're not in the list.
 model_chain = ["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3.5-bolt-e4b"]
+# the chat agent needs the bigger model: on our test set of tricky replies ("no", "70", "3k i mean",
+# hinglish) it read 12 of 12 right against 8 of 12 for lightning, at about 2 seconds
+agent_chain = ["nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-lightning-30b-a3b"]
 key_names = ["NVIDIA_NIM_KEY_1", "NVIDIA_NIM_KEY_2", "NVIDIA_NIM_KEY_3"]
 
 _next_key = 0
@@ -26,15 +29,20 @@ def available():
     return bool(keys())
 
 
-def complete(messages, max_tokens=300, temperature=0.2, timeout=5.0, budget=7.0, most_tries=4):
-    """budget caps the whole call, retries included, so a slow api can't hold up the chat."""
+def call(messages, tools=None, tool_choice=None, chain=None, max_tokens=300, temperature=0.2, timeout=5.0, budget=7.0, most_tries=4):
+    """One chat request, rotating keys and models. Returns the reply message (content plus any
+    tool calls) or None. budget caps the whole call, retries included."""
     global _next_key, _good_model
     pool = keys()
     if not pool:
         return None
     forced = os.environ.get("NIM_MODEL")
-    models = [forced] if forced else ([_good_model] if _good_model else []) + \
-        [m for m in model_chain if m != _good_model]
+    if forced:
+        models = [forced]
+    elif chain:
+        models = chain
+    else:
+        models = ([_good_model] if _good_model else []) + [m for m in model_chain if m != _good_model]
 
     give_up_at = time.monotonic() + budget
     tries = 0
@@ -42,6 +50,10 @@ def complete(messages, max_tokens=300, temperature=0.2, timeout=5.0, budget=7.0,
         # without this, nemotron spends every token thinking and the reply comes back empty
         body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature,
                 "chat_template_kwargs": {"enable_thinking": False}}
+        if tools:
+            body["tools"] = tools
+            if tool_choice:
+                body["tool_choice"] = tool_choice
         for i in range(len(pool)):
             left = give_up_at - time.monotonic()
             if tries >= most_tries or left < 0.5:
@@ -58,18 +70,25 @@ def complete(messages, max_tokens=300, temperature=0.2, timeout=5.0, budget=7.0,
             if r.status_code == 200:
                 _next_key = (_next_key + i + 1) % len(pool)
                 try:
-                    text = r.json()["choices"][0]["message"]["content"]
+                    msg = r.json()["choices"][0]["message"]
                 except (KeyError, IndexError, TypeError, ValueError):
                     break
                 # in case a model still thinks out loud
-                text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
-                if text:
-                    _good_model = model
-                    return text
+                text = re.sub(r"<think>.*?</think>", "", msg.get("content") or "", flags=re.S).strip()
+                calls = msg.get("tool_calls") or []
+                if text or calls:
+                    if not chain:
+                        _good_model = model
+                    return {"content": text, "tool_calls": calls}
                 break  # empty reply, try the next model
             if r.status_code in (400, 404, 410, 422):
                 break  # this model is the problem, not the key
     return None
+
+
+def complete(messages, **kwargs):
+    msg = call(messages, **kwargs)
+    return msg["content"] or None if msg else None
 
 
 extract_system = """You read one message from someone applying for a two-wheeler loan in India and pull out any facts they stated.

@@ -469,3 +469,6 @@ details.under dd { margin: 0; text-align: right; font-variant-numeric: tabular-n
 .page .aside { color: var(--faint); font-size: 15px; margin-top: 32px; }
 .primary-link { color: var(--ember); text-decoration: none; font-weight: 600; }
 .primary-link:hover { text-decoration: underline; }
+
+.review .typed { margin-top: 16px; }
+.review .typed .primary { margin-top: 0; }

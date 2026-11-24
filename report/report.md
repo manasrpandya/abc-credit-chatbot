@@ -188,12 +188,19 @@ groups have few declines, so their recall is noisy. Before any real use, this ga
 
 ## 9. The chatbot
 
-- **Separation.** The decision is `probability >= cut-off`, in code the language model can't reach. A test confirms that language model suggestions pass through the same validators as typed answers.
-- **Typing first.** The applicant can type everything in one message, in English or Hinglish ("98 hazaar", "meri dukaan hai", "koi loan nahi"), and several fields fill at once. Buttons sit under the text box as shortcuts. The flow is dynamic: the income question is worded for the applicant's work, students and non-earners skip it, and the vehicle answer offers that model's usual price.
-- **State machine.** It owns the order and the rules. Each answer goes through a plain parser first (35k, 1.2 lakh, 20%), so most turns don't use the language model at all.
-- **Language model.** NVIDIA NIM, used for reading messy messages, side questions and wording the summary. It rotates across three keys and two Nemotron models, with the model's thinking turned off so it replies in about a second. Each call gives up after 7 seconds in total. If all of that fails, the bot uses scripted text and still finishes.
-- **Nothing it isn't told.** An answer the language model pulls from a message is kept only if the message mentions that topic. In testing it once filled in "no other loans" for a message that never said so, and that check now drops such guesses. Side questions are answered from a short list of true facts about the service: for example, there is no credit bureau check, and it says it doesn't know rates or EMIs.
-- **Explanation guard.** A summary from the language model is dropped for a fixed template if it contradicts the decision, mentions a number that isn't in the facts, or uses words like "guarantee".
+A language model runs the conversation and the trained model makes the decision. Each typed message takes three steps:
+
+1. **Understand.** Nemotron Ultra (NVIDIA NIM) reads the message along with the recent conversation, and returns what it says as structured data: answers, corrections, a question, or a request for the decision.
+2. **Act.** Plain code checks that each value actually appears in the message, runs the same validators as a typed answer, saves it and searches the vehicle list. When the applicant asks for their decision and nothing is missing, code calls the credit model. The decision is `probability >= cut-off`, and the language model can't reach it.
+3. **Reply.** The language model writes the next message from exactly what step 2 did. So it can't claim a save that didn't happen, and code decides what's still missing.
+
+Our first version let the language model call tools directly. With the smaller model it said "saved" without saving, filled in answers nobody gave, and lost track of the order. Splitting each turn into understand, act and reply, with code in the middle, fixed that.
+
+- **Guards in step 2.** A value counts only if the applicant's own message contains it. The earlier conversation supports only the field that was just asked, so "70" means ₹70,000 for a price question but not elsewhere, and "29" answering the age question can't become a down payment. Agreeing to a suggested price needs an actual yes. Tests cover each guard, with the language model faked.
+- **Model choice.** We wrote 12 hard replies from real test chats ("no" to a suggested price, "70", "3k i mean", Hinglish, "the comfort one", a side question). Nemotron Lightning (30B) read 8 of 12 correctly. Nemotron Ultra (550B) read 12 of 12 in each of three runs, at about 2 seconds a call, so the agent uses it, with Lightning as its fallback.
+- **Side questions** are answered from a short list of true facts (no credit bureau check, how data is masked, no interest rate information) and the reasons each question is asked.
+- **Explanation guard.** The worded summary after a decision is dropped for a fixed template if it contradicts the decision, mentions a number that isn't in the facts, or uses words like "guarantee". Any chat reply that mentions approval or decline before the result is blocked.
+- **Fallback.** Buttons, plain parsers and the scripted state machine still finish an application if NIM is down.
 - **Why a result came out that way.** SHAP values from the model, grouped by answer and shown as plain reasons, under a disclaimer saying these are patterns in past decisions, not the formal reason or a statement of cause.
 - **What-if slider.** Dragging the down payment re-scores with the same model, and applying with a new value creates a new logged decision.
 
@@ -226,16 +233,15 @@ the free database waking from sleep, can push a first request past a second (our
 
 Our first version took 1.4 seconds just to write the log, because it opened a new database connection each time. Reusing the connection brought that to about 10 ms.
 
-The language model is not on this path. The worded summary is fetched after the decision is already on screen. Over 8 more hosted applications with the language model switched on:
+Scoring doesn't wait on the language model. When the applicant asks for the decision in the chat, the language model first reads that request (about 2 seconds), then the model scores in the time above. With the decision button, there's no language model step at all. The worded summary is fetched after the decision is on screen. With the language model switched on:
 
 | Step | Median | Slowest |
 |---|---:|---:|
-| Reading a free-form message | 1.6 s | 1.8 s |
-| Answering a side question | 1.8 s | 2.1 s |
+| One typed chat turn (understand, act, reply), over a 13-message hosted conversation | 3.2 s | 5.1 s |
 | Worded summary, after the decision | 1.4 s | 4.5 s |
 | Final input to decision | 528 ms | 680 ms |
 
-All 8 summaries passed the guard. Turns answered with a button or a plain value skip the language model.
+All 8 summaries we checked passed the guard. Tapped buttons skip the language model.
 
 **X = 3 minutes.** Eight questions at about 15 to 20 seconds each comes to around 2 to 3 minutes for a first-time user. An automated run takes under 15 seconds, so nearly all the time is the person reading and answering. We haven't timed real applicants. The log records completion time for each session, so this can be checked once people use it.
 

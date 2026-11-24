@@ -26,8 +26,10 @@ export default function Home() {
     setLines((all) => [...all, { id: ++counter.current, from, text, small }]);
 
   function takeTurn(next: Turn) {
-    next.messages.forEach((m) => say("bot", m, Boolean(next.question)));
-    if (next.question) say("bot", next.question.text);
+    const asks = Boolean(next.question) && next.ask !== false;
+    next.messages.forEach((m) => say("bot", m, asks));
+    if (asks && next.question) say("bot", next.question.text);
+    if (next.result) setResult(next.result);
     setTurn(next);
     setShowWhy(false);
     // light up the rows this turn filled, so one long message visibly fills several
@@ -146,6 +148,11 @@ export default function Home() {
                 ))}
               </ul>
               <button className="primary" onClick={() => decide(turn.state)}>Get my decision</button>
+              <form className="typed" onSubmit={sendTyped}>
+                <input ref={field} value={typed} onChange={(e) => setTyped(e.target.value)}
+                       placeholder="Or tell me what to change, or say go ahead" aria-label="Message" autoComplete="off" />
+                <button type="submit" className="primary" disabled={!typed.trim() || busy}>Send</button>
+              </form>
             </div>
           )}
 

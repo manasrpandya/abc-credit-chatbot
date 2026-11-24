@@ -37,6 +37,8 @@ export type Turn = {
   progress: { done: number; total: number };
   question: Question | null;
   stage: "asking" | "review" | "ineligible";
+  ask?: boolean;      // false when the assistant already asked the next question in its own words
+  result?: Result;    // set when the applicant asked for their decision in the chat
 };
 
 export type Reason = { factor: string; label: string; text: string };

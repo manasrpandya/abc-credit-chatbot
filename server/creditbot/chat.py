@@ -228,6 +228,8 @@ def validate(key, value, a):
         v = parsing.parse_amount(value)
         if v is None:
             return None, "I need the price as an amount, like 95,000."
+        if 0 < v < 1000:
+            return None, f"Did you mean {rupees(v * 1000)}? Please give the full amount in rupees."
         if not 30000 <= v <= 600000:
             return None, "That price looks off for a two-wheeler. It should be between ₹30,000 and ₹6,00,000."
         return int(v), None
@@ -237,6 +239,8 @@ def validate(key, value, a):
         v = price * pct / 100 if pct is not None else parsing.parse_amount(value)
         if v is None:
             return None, "I need an amount, like 20,000, or a percentage, like 20%."
+        if 0 < v < 500 and pct is None:
+            return None, f"{rupees(v)} looks very small. Did you mean {rupees(v * 1000)}? Please give the full amount in rupees."
         if v < 0 or v >= price:
             return None, f"The down payment has to be less than the price of {rupees(price)}."
         if (price - v) / price < 0.2:
@@ -315,6 +319,18 @@ def to_application(a):
             "PAST_LOANS_ACTIVE": "PAST_LOANS_ACTIVE" if a["active_loans"] else "NO_PAST_LOANS"}
 
 
+def summary_value(key, v):
+    if key == "vehicle":
+        return catalogue().get(v, "Not listed")
+    if key in ("on_road_price", "down_payment", "income"):
+        return rupees(v)
+    if key == "employment":
+        return employment_labels.get(v, v)
+    if key == "active_loans":
+        return "Yes" if v else "No"
+    return str(v)
+
+
 def summary_rows(a):
     out = []
     cat = catalogue()
@@ -343,7 +359,15 @@ def _masked_answers(a):
     return {k: privacy.mask_answer(k, v) for k, v in a.items()}
 
 
-def _reply(state, messages, events):
+def remember(state, role, text):
+    """Keep a short masked transcript in the signed state, so the language model sees the conversation."""
+    if text:
+        h = state.setdefault("h", [])
+        h.append([role, privacy.mask_for_llm(str(text))[:400]])
+        del h[:-30]
+
+
+def _reply(state, messages, events, ask=True):
     key = next_key(state)
     payload = {"messages": messages, "answers": summary_rows(state["a"]),
                "price": state["a"].get("on_road_price"), "down": state["a"].get("down_payment"),
@@ -357,6 +381,11 @@ def _reply(state, messages, events):
         q = question_for(state, key)
         payload.update(question=q, stage="asking")
         events.append(("question_asked", {"key": key, "text": q["text"]}))
+    for m in messages:
+        remember(state, "assistant", m)
+    if ask and payload["question"]:
+        remember(state, "assistant", payload["question"]["text"])
+    payload["ask"] = ask
     audit.write_many(state["sid"], events)
     payload["state"] = seal(state)
     return payload
@@ -481,14 +510,30 @@ def answer(token, text=None, value=None):
     if state is None:
         return None
     events = []
-    key = next_key(state)
-    messages = []
-    if key is None:
-        return _reply(state, ["That's everything. Check your details below."], events)
-
     raw = (value if value is not None else (text or "")).strip()[:max_text]
     if not raw:
         return _reply(state, ["I didn't catch that."], events)
+
+    if value is None:
+        remember(state, "user", raw)
+        # typed messages go to the language model agent, which fills the form through tools
+        from . import agent
+        handled = agent.turn(state, raw, events)
+        if handled is not None:
+            reply, result = handled
+            if state.get("ineligible"):
+                reply = _after_answer(state, ["age"])[0]
+            payload = _reply(state, [reply] if reply else [], events, ask=not reply)
+            if result:
+                payload["result"] = result
+            return payload
+        # no language model to hand, carry on with the scripted flow
+    else:
+        remember(state, "user", catalogue().get(raw, raw.split(":")[-1].title()))
+
+    key = next_key(state)
+    if key is None:
+        return _reply(state, ["That's everything. Check your details below."], events)
 
     # chips and direct picks skip all parsing
     if key == "vehicle" and raw.startswith("family:"):
