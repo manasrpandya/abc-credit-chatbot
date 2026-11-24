@@ -4,8 +4,10 @@ import re
 
 word_numbers = {"zero": 0, "nil": 0, "none": 0, "nothing": 0}
 multipliers = {"k": 1e3, "thousand": 1e3, "l": 1e5, "lac": 1e5, "lakh": 1e5, "lakhs": 1e5,
-               "lacs": 1e5, "cr": 1e7, "crore": 1e7}
-amount_rx = re.compile(r"(\d+(?:\.\d+)?)\s*(k|thousand|lakhs?|lacs?|l|cr|crore)?\b")
+               "lacs": 1e5, "cr": 1e7, "crore": 1e7,
+               # hinglish
+               "hazar": 1e3, "hazaar": 1e3, "hajar": 1e3, "hajaar": 1e3, "hazzar": 1e3}
+amount_rx = re.compile(r"(\d+(?:\.\d+)?)\s*(k|thousand|lakhs?|lacs?|l|cr|crore|hazz?aa?r|hajaa?r)?\b")
 
 
 def parse_amount(text):
@@ -54,9 +56,9 @@ def parse_yes_no(text):
 
 employment_words = {
     "SAL": ["salaried", "salary", "job", "employee", "employed", "service", "naukri"],
-    "SEP": ["self employed", "self-employed", "business", "shop", "freelance", "contractor"],
-    "AGR": ["farmer", "farming", "agriculture", "agri", "kisan"],
-    "STU": ["student", "studying", "college"],
+    "SEP": ["self employed", "self-employed", "business", "shop", "freelance", "contractor", "dukaan", "dukan", "vyapar"],
+    "AGR": ["farmer", "farming", "agriculture", "agri", "kisan", "kheti"],
+    "STU": ["student", "studying", "college", "padhai"],
     "PEN": ["pension", "pensioner", "retired"],
     "NREGI": ["irregular", "daily wage", "gig", "labour", "labor", "non regular", "seasonal"],
     "NPP": ["probation", "contract job", "temporary", "non permanent"],

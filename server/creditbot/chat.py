@@ -367,7 +367,9 @@ def start():
     events = [("session_started", {"consent": True, "model_version": load_scorer_for_mode().version,
                                    "model_kind": load_scorer_for_mode().kind, "llm_available": nim.available(),
                                    "log_store": audit.backend_name()})]
-    return _reply(state, ["Hi, I'll help you apply for a two-wheeler loan. A few short questions, and you'll have an answer straight away."], events)
+    return _reply(state, ["Hi, I'm the ABC Credit loan assistant. Just talk to me like you'd talk to the dealer, "
+                          "in English or Hinglish. You can say it all in one go, like \"Jupiter 125, 98 hazaar on road, "
+                          "I can pay 20k now\", or answer one at a time. Tap a suggestion whenever that's quicker."], events)
 
 
 def _accept(state, key, value, source, raw, events):
@@ -404,6 +406,11 @@ def _llm_help(state, key, text, events):
 
     applied, errors = [], []
     suggestion = data.pop("question", None)
+    # the keyword list knows words like dukaan and kheti even when the llm skips them
+    if not data.get("employment") and "employment" not in state["a"]:
+        found = parsing.parse_employment(text)
+        if found:
+            data["employment"] = found
     # go in question order, the down payment check needs the price first
     for k in order:
         if k not in data or data[k] in (None, ""):
@@ -438,11 +445,12 @@ def _llm_help(state, key, text, events):
 
 # the llm sometimes fills in things nobody said, like "no other loans". an answer it found only
 # counts if the message actually touches that topic
-money_hint = re.compile(r"\d|lakh|lac\b|thousand|hundred|crore", re.I)
-loans_hint = re.compile(r"\b(emis?|loans?|debts?|borrow\w*|owe|credit card)\b", re.I)
+money_hint = re.compile(r"\d|lakh|lac\b|thousand|hundred|crore|haz|haj", re.I)
+loans_hint = re.compile(r"\b(emis?|loans?|debts?|borrow\w*|owe|credit card|karz\w*|karja)\b", re.I)
 work_hint = re.compile(r"\b(salar\w*|job|jobs|work\w*|employ\w*|business\w*|self|shop\w*|farm\w*|agri\w*|"
                        r"crop\w*|student|college|study\w*|school|pension\w*|retired|housewife|homemaker|"
-                       r"nrega|labou?r\w*|driver|freelanc\w*|earn\w*|company|office|government|govt)\b", re.I)
+                       r"nrega|labou?r\w*|driver|freelanc\w*|earn\w*|company|office|government|govt|naukri|dukaa?n|kheti|kisan|"
+                       r"padhai|vyapar)\b", re.I)
 
 
 def stated_in(key, value, text):

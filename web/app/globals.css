@@ -447,3 +447,25 @@ details.under dd { margin: 0; text-align: right; font-variant-numeric: tabular-n
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* typing comes first, buttons are shortcuts under the box */
+.chips.suggest { margin: 10px 0 0; }
+.chips.suggest .chip { padding: 5px 12px; font-size: 14px; color: var(--muted); }
+.chips.suggest .chip:hover { color: var(--text); }
+
+/* rows filled by the last message */
+.rows li.fresh { animation: row-fill 1.8s var(--ease) both; }
+@keyframes row-fill {
+  0% { background: var(--ember-dim); box-shadow: inset 2px 0 0 var(--ember); }
+  100% { background: transparent; box-shadow: inset 2px 0 0 transparent; }
+}
+
+/* how it decides, the short version */
+.page.short { max-width: 720px; }
+.matters { margin: 8px 0 20px; }
+.matters div { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.matters dt { font-weight: 600; margin-bottom: 4px; }
+.matters dd { margin: 0; color: var(--muted); max-width: 62ch; }
+.page .aside { color: var(--faint); font-size: 15px; margin-top: 32px; }
+.primary-link { color: var(--ember); text-decoration: none; font-weight: 600; }
+.primary-link:hover { text-decoration: underline; }

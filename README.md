@@ -10,6 +10,34 @@ Mini project for Z6008.
 The training data isn't in this repo since it isn't mine to publish. Put `training_data.csv` in the repo root
 if you want to rerun the pipeline. The site and the localhost version work without it.
 
+## Against the brief
+
+| The brief asks for | Where it is |
+|---|---|
+| Cleaning and preprocessing, data quality, encoding, feature selection | [pipeline/](pipeline), [notebooks/01_eda.ipynb](notebooks/01_eda.ipynb), report sections 2 to 4 |
+| Trained model with reproducible training code | `python -m pipeline.train`, exported model in [server/creditbot/model](server/creditbot/model) |
+| Chatbot: dynamic questions, model call, approve or decline, next steps, PII masking | the [live site](https://abc-credit-loans.vercel.app), [server/creditbot/chat.py](server/creditbot/chat.py), [privacy.py](server/creditbot/privacy.py) |
+| Log of every input, answer, feature value and score | [audit.py](server/creditbot/audit.py), the `/audit` page (needs the key) |
+| Predictions on the hold-out set | `python -m pipeline.predict test.csv predictions.csv`, ready for the file |
+| Report: fields kept, data issues, model, metrics, latency, X and Y | [report/report.md](report/report.md) |
+| Decision kept away from the language model | the decision is `probability >= cut-off` in [scorer.py](server/creditbot/scorer.py), tested in [tests/](tests) |
+
+**X = 3 minutes, Y = 1 second.** A decision takes 530 ms (median), 731 ms at the 95th percentile, on the hosted site.
+
+## What's different here
+
+- **It's a real chat.** People can type the whole thing in one go, in English or Hinglish, such as "Jupiter 125, 98 hazaar
+  on road, 20k down, I run a dukaan". Plain parsers handle short answers, and a language model reads longer ones. The
+  side panel fills several fields from one message. Buttons are there only as shortcuts.
+- **Answers are checked, not trusted.** Anything the language model pulls out goes through the same validators as typed
+  input, and it's kept only if the message actually mentions that topic.
+- **Reasons come from the model itself.** TreeSHAP values, grouped by question, under a disclaimer.
+- **What-if slider.** Drag the down payment and the real model re-scores live.
+- **Eight questions fill fifteen columns.** The vehicle answer fills make, model, variant and product, and the pincode
+  fills tier and area. Each question was tested for what it adds.
+- **Tamper-evident log.** Each row hashes the previous one, so an edited entry breaks the chain.
+- **A stronger offline version.** The release zip runs a LightGBM and CatBoost blend on your own machine.
+
 ## How the decision works
 
 The model decides, the language model only talks.
@@ -36,6 +64,53 @@ pipeline scores 0.50, so nothing is leaking.
 
 The full reasoning is in [report/report.md](report/report.md), and the data exploration is in
 [notebooks/01_eda.ipynb](notebooks/01_eda.ipynb).
+
+## Choosing the questions
+
+We dropped one question at a time and measured the loss in AUC with grouped cross-validation. Down payment and pincode
+carry most of the signal. All eight questions score 0.784. Six would score almost the same, but we keep employment and
+income because the brief asks for them and affordability needs them. Gender would add 0.0003 AUC, so it's left out on
+principle. Residence and education were dropped.
+
+![questions vs auc](report/figures/questions_vs_auc.png)
+
+## Choosing the cut-off
+
+We assumed a bad approval costs about 8 times as much as a lost customer, and picked the cut-off with the lowest total
+cost on out-of-fold predictions (11.5%). The ratio is an assumption, and this is how the choice moves with it:
+
+| A bad approval costs | Cut-off | Declined | Recall | Precision | Accuracy |
+|---|---|---|---|---|---|
+| 2x a lost customer | 31.6% | 0.5% | 4.0% | 38.6% | 94.6% |
+| 3x | 25.2% | 1.6% | 9.6% | 32.3% | 94.2% |
+| 5x | 17.5% | 4.9% | 22.1% | 23.5% | 92.1% |
+| **8x (chosen)** | **11.5%** | **12.2%** | **41.4%** | **17.9%** | **86.9%** |
+| 10x | 8.7% | 19.3% | 55.3% | 15.1% | 81.3% |
+| 15x | 6.3% | 28.9% | 68.6% | 12.5% | 73.1% |
+
+(Out-of-fold, development rows. Recall and precision are for declines.)
+
+![threshold trade-off](report/figures/threshold_tradeoff.png)
+
+## Data issues and what we did
+
+| Found | Done |
+|---|---|
+| One fully empty row at the end | Dropped |
+| Placeholder incomes like ₹1, ₹2, ₹25, ₹100 | Treated as missing, with a flag |
+| Zero income for students and non-earners | Kept, it's real |
+| 65 rows with LTV of exactly 0 | Estimated from loan amount and the model's usual price, flagged |
+| 1,105 applicants above the stated age limit of 60 | Kept and flagged, they were clearly processed |
+| Broken characters and spelling variants in model names | Normalised |
+| Blank tier, make, variant and product cells | Filled from the pincode or model, which determine them |
+| About 14,000 pincodes, most with under 20 rows | Smoothed target encoding on 2 and 3 digit areas, fitted out of fold |
+
+## Groups
+
+Error rates on the locked test rows. Gender isn't an input and both groups are close: women 11.2% declined by the model
+and 43% recall, men 11.5% and 40%. Location is an input, and rural and semi-urban applicants get declined about 12% of the
+time against 3 to 7% in the big cities, despite similar historical rates. We haven't resolved that gap, and the report
+discusses it.
 
 ## Run it on your own machine
 

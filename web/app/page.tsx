@@ -19,6 +19,8 @@ export default function Home() {
   const counter = useRef(0);
   const logEnd = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
+  const seen = useRef<Set<string>>(new Set());
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
 
   const say = (from: Line["from"], text: string, small?: boolean) =>
     setLines((all) => [...all, { id: ++counter.current, from, text, small }]);
@@ -28,6 +30,10 @@ export default function Home() {
     if (next.question) say("bot", next.question.text);
     setTurn(next);
     setShowWhy(false);
+    // light up the rows this turn filled, so one long message visibly fills several
+    const now = new Set(next.answers.map((a) => a.label));
+    setFresh(new Set([...now].filter((l) => !seen.current.has(l))));
+    seen.current = now;
   }
 
   useEffect(() => {
@@ -48,6 +54,7 @@ export default function Home() {
 
   const begin = () => run(async () => {
     setLines([]);
+    seen.current = new Set();
     setResult(null);
     takeTurn(await post<Turn>("start"));
   });
@@ -93,7 +100,7 @@ export default function Home() {
       <main className="intro">
         <h1>Your two-wheeler loan answer, in about two minutes</h1>
         <PriceBar price={90000} down={18000} opening />
-        <p className="lede">Eight short questions. No documents yet. You&apos;ll see the answer and what influenced it straight away.</p>
+        <p className="lede">Tell us about the bike and your budget in your own words, English or Hinglish. No forms and no documents yet. You&apos;ll see the answer and what shaped it straight away.</p>
         <button className="primary" onClick={begin}>Start my application</button>
         {problem && <p className="error-line">{problem}</p>}
         <p className="privacy">
@@ -150,19 +157,17 @@ export default function Home() {
 
           {q && (
             <div className="answer-area">
+              <form className="typed" onSubmit={sendTyped}>
+                <input ref={field} value={typed} onChange={(e) => setTyped(e.target.value)}
+                       placeholder={q.placeholder || "Type your answer"} aria-label={q.text} autoComplete="off" />
+                <button type="submit" className="primary" disabled={!typed.trim() || busy}>Send</button>
+              </form>
               {q.chips.length > 0 && !busy && (
-                <div className="chips">
+                <div className="chips suggest" aria-label="Suggestions">
                   {q.chips.map((c) => (
                     <button key={c.value} className="chip" onClick={() => reply(c.label, { value: c.value })}>{c.label}</button>
                   ))}
                 </div>
-              )}
-              {(q.kind !== "chips" || q.key === "employment" || q.key === "active_loans") && (
-                <form className="typed" onSubmit={sendTyped}>
-                  <input ref={field} value={typed} onChange={(e) => setTyped(e.target.value)}
-                         placeholder={q.placeholder || "Or type your answer"} aria-label={q.text} autoComplete="off" />
-                  <button type="submit" className="primary" disabled={!typed.trim() || busy}>Send</button>
-                </form>
               )}
               <p className="why">
                 {showWhy ? q.why : <button className="quiet" onClick={() => setShowWhy(true)}>Why we ask this</button>}
@@ -179,7 +184,7 @@ export default function Home() {
           {turn && turn.answers.length > 0 ? (
             <ul className="rows">
               {turn.answers.map((a) => (
-                <li key={a.label}><span>{a.label}</span><span>{a.value}</span></li>
+                <li key={a.label} className={fresh.has(a.label) ? "fresh" : undefined}><span>{a.label}</span><span>{a.value}</span></li>
               ))}
             </ul>
           ) : (
