@@ -145,7 +145,7 @@ def _rows(sql_pg, sql_lite, **params):
         return [dict(r) for r in con.execute(sql_lite, tuple(params.values())).fetchall()]
 
 
-def recent_sessions(limit=50):
+def recent_sessions(limit=300):
     q = ("select session_id, min(at_ms) as started, max(at_ms) as last_seen, count(*) as events, "
          "max(case when kind = 'decision' then body end) as decision "
          "from audit_events group by session_id order by last_seen desc limit ")
