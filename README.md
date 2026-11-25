@@ -7,12 +7,9 @@ Mini project for Z6008.
 
 **Live site:** https://abc-credit-loans.vercel.app
 
-The training data isn't in this repo since it isn't mine to publish. Put `training_data.csv` in the repo root
-if you want to rerun the pipeline. The site and the localhost version work without it.
+## Contents
 
-## Against the brief
-
-| The brief asks for | Where it is |
+| Part | Where it is |
 |---|---|
 | Cleaning and preprocessing, data quality, encoding, feature selection | [pipeline/](pipeline), [notebooks/01_eda.ipynb](notebooks/01_eda.ipynb), report sections 2 to 4 |
 | Trained model with reproducible training code | `python -m pipeline.train`, exported model in [server/creditbot/model](server/creditbot/model) |
@@ -22,21 +19,8 @@ if you want to rerun the pipeline. The site and the localhost version work witho
 | Report: fields kept, data issues, model, metrics, latency, X and Y | [report/report.md](report/report.md) |
 | Decision kept away from the language model | the decision is `probability >= cut-off` in [scorer.py](server/creditbot/scorer.py), tested in [tests/](tests) |
 
-**X = 3 minutes, Y = 1 second.** A decision takes 530 ms (median), 731 ms at the 95th percentile, on the hosted site.
+decisions takes 530 ms (median), 731 ms at the 95th percentile, on the hosted site.
 
-## What's different here
-
-- **It's a real chat.** People can type the whole thing in one go, in English or Hinglish, such as "Jupiter 125, 98 hazaar
-  on road, 20k down, I run a dukaan". Plain parsers handle short answers, and a language model reads longer ones. The
-  side panel fills several fields from one message. Buttons are there only as shortcuts.
-- **Answers are checked, not trusted.** Anything the language model pulls out goes through the same validators as typed
-  input, and it's kept only if the message actually mentions that topic.
-- **Reasons come from the model itself.** TreeSHAP values, grouped by question, under a disclaimer.
-- **What-if slider.** Drag the down payment and the real model re-scores live.
-- **Eight questions fill fifteen columns.** The vehicle answer fills make, model, variant and product, and the pincode
-  fills tier and area. Each question was tested for what it adds.
-- **Tamper-evident log.** Each row hashes the previous one, so an edited entry breaks the chain.
-- **A stronger offline version.** The release zip runs a LightGBM and CatBoost blend on your own machine.
 
 ## How it works
 
@@ -97,18 +81,31 @@ pipeline scores 0.50, so nothing is leaking.
 The full reasoning is in [report/report.md](report/report.md), and the data exploration is in
 [notebooks/01_eda.ipynb](notebooks/01_eda.ipynb).
 
+## What we believe are the differentiators here
+
+- **It's a real chat.** People can type the whole thing in one go, in English or Hinglish, such as "Jupiter 125, 98 hazaar
+  on road, 20k down, I run a dukaan". Plain parsers handle short answers, and a language model reads longer ones. The
+  side panel fills several fields from one message. Buttons are there only as shortcuts.
+- **Answers are checked, not trusted.** Anything the language model pulls out goes through the same validators as typed
+  input, and it's kept only if the message actually mentions that topic.
+- **Reasons come from the model itself.** TreeSHAP values, grouped by question, under a disclaimer.
+- **What-if slider.** Drag the down payment and the real model re-scores live.
+- **Eight questions fill fifteen columns.** The vehicle answer fills make, model, variant and product, and the pincode
+  fills tier and area. Each question was tested for what it adds.
+- **Tamper-evident log.** Each row hashes the previous one, so an edited entry breaks the chain.
+- **A stronger offline version.** The release zip runs a LightGBM and CatBoost blend on your own machine.
+
 ## Choosing the questions
 
 We dropped one question at a time and measured the loss in AUC with grouped cross-validation. Down payment and pincode
 carry most of the signal. All eight questions score 0.784. Six would score almost the same, but we keep employment and
-income because the brief asks for them and affordability needs them. Gender would add 0.0003 AUC, so it's left out on
-principle. Residence and education were dropped.
+income as asked in the requirements. Gender would add 0.0003 AUC, so it's left out, credits to the Responsible AI course. additionally, residence and education were dropped.
 
 ![questions vs auc](report/figures/questions_vs_auc.png)
 
 ## Choosing the cut-off
 
-We assumed a bad approval costs about 8 times as much as a lost customer, and picked the cut-off with the lowest total
+Our assumption is that a bad approval costs about 8 times as much as a lost customer, and picked the cut-off with the lowest total
 cost on out-of-fold predictions (11.5%). The ratio is an assumption, and this is how the choice moves with it:
 
 | A bad approval costs | Cut-off | Declined | Recall | Precision | Accuracy |
@@ -120,19 +117,17 @@ cost on out-of-fold predictions (11.5%). The ratio is an assumption, and this is
 | 10x | 8.7% | 19.3% | 55.3% | 15.1% | 81.3% |
 | 15x | 6.3% | 28.9% | 68.6% | 12.5% | 73.1% |
 
-(Out-of-fold, development rows. Recall and precision are for declines.)
 
 ![threshold trade-off](report/figures/threshold_tradeoff.png)
 
 ## Data issues and what we did
 
-| Found | Done |
+| What was found | Our Soluition |
 |---|---|
 | One fully empty row at the end | Dropped |
-| Placeholder incomes like ₹1, ₹2, ₹25, ₹100 | Treated as missing, with a flag |
-| Zero income for students and non-earners | Kept, it's real |
-| 65 rows with LTV of exactly 0 | Estimated from loan amount and the model's usual price, flagged |
-| 1,105 applicants above the stated age limit of 60 | Kept and flagged, they were clearly processed |
+| Placeholder incomes like ₹1, ₹2, ₹25, ₹100 | Treated as missing |
+| 65 rows with LTV = 0 | Estimated from loan amount and the model's usual price |
+| 1,105 applicants above the stated age limit of 60 | Kept and flagged, though they were otherwise clearly processed |
 | Broken characters and spelling variants in model names | Normalised |
 | Blank tier, make, variant and product cells | Filled from the pincode or model, which determine them |
 | About 14,000 pincodes, most with under 20 rows | Smoothed target encoding on 2 and 3 digit areas, fitted out of fold |
