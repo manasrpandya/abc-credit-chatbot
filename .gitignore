@@ -26,3 +26,4 @@ dist/
 runs/
 web/next-env.d.ts
 web/tsconfig.tsbuildinfo
+*.zip
